@@ -14,7 +14,15 @@ global:
   server:
     port: 80
     stun_port: 3478
-    encryption_key: '' # openssl rand -base64 32
+
+  # One pre-existing Secret shared by the server and the dashboard. Each service maps env var names to keys
+  # in this Secret via <service>.secretEnv below.
+  existingSecret: ''
+  # Fallback: when existingSecret is empty, the chart creates a Secret named <release>-secrets from this map.
+  # Every key referenced by a secretEnv mapping must be present here. Prefer existingSecret in production.
+  secrets:
+    authSecret: ''          # openssl rand -base64 32 ; relay shared secret (server.authSecret)
+    storeEncryptionKey: ''  # openssl rand -base64 32 ; datastore key (server.store.encryptionKey)
 
   persistence:
     enabled: true
@@ -56,7 +64,7 @@ global:
 dashboard:
   image:
     repository: netbirdio/dashboard
-    tag: v2.33.0
+    tag: v2.92.0
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
@@ -72,12 +80,29 @@ dashboard:
     annotations: {}
   extra_volumes: []
   extra_volumeMounts: []
+  # Default environment for the dashboard, rendered into a ConfigMap. Domain-derived variables
+  # (NETBIRD_MGMT_API_ENDPOINT, NETBIRD_MGMT_GRPC_API_ENDPOINT, AUTH_AUTHORITY) are added by the chart
+  # and can also be overridden here.
+  env:
+    AUTH_AUDIENCE: netbird-dashboard
+    AUTH_CLIENT_ID: netbird-dashboard
+    AUTH_CLIENT_SECRET: ''
+    USE_AUTH0: 'false'
+    AUTH_SUPPORTED_SCOPES: 'openid profile email'
+    AUTH_REDIRECT_URI: /nb-auth
+    AUTH_SILENT_REDIRECT_URI: /nb-silent-auth
+    NGINX_SSL_PORT: '443'
+    LETSENCRYPT_DOMAIN: none
+  # Env vars sourced from the shared Secret (global.existingSecret): env var name -> Secret key.
+  # These take precedence over the same-named variable in env above, e.g.
+  #   AUTH_CLIENT_SECRET: dashboardClientSecret
+  secretEnv: {}
 
 
 server:
   image:
     repository: netbirdio/netbird-server
-    tag: 0.66.0
+    tag: 0.78.1
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
@@ -99,6 +124,41 @@ server:
     mountPath: /var/lib/netbird
     configMountPath: /etc/netbird/config.yaml
     subPath: 'server'
+
+  # Server config.yaml. This tree is written verbatim to a ConfigMap after the chart adds domain-derived
+  # fields (listenAddress, exposedAddress, stunPorts, dataDir, auth.issuer, auth.dashboardRedirectURIs)
+  # and placeholders for the secret fields (authSecret, store.encryptionKey). Anything set here wins
+  # over the derived values. Lists replace rather than append.
+  config:
+    server:
+      metricsPort: 9090
+      healthcheckAddress: ':9000'
+      logLevel: info
+      logFile: console
+      auth:
+        signKeyRefreshEnabled: true
+        cliRedirectURIs:
+          - 'http://localhost:53000/'
+      reverseProxy:
+        trustedHTTPProxies:
+          - '0.0.0.0/0'
+      store:
+        engine: sqlite
+
+  # Env vars sourced from the shared Secret (global.existingSecret): env var name -> Secret key.
+  # Each env var is substituted into a matching ${ENV_VAR} placeholder in config.yaml at startup.
+  # Add entries here plus ${ENV_VAR} placeholders under server.config to inject other secrets
+  # (e.g. a Postgres DSN). Values must not contain '|', '&' or '\' (sed delimiter/specials).
+  secretEnv:
+    NB_AUTH_SECRET: authSecret
+    NB_STORE_ENCRYPTION_KEY: storeEncryptionKey
+  # Init container that renders the final config.yaml. Defaults to the server image (Ubuntu-based, has sh/sed).
+  configInit:
+    image:
+      repository: ''   # defaults to server.image.repository
+      tag: ''          # defaults to server.image.tag
+      pullPolicy: ''   # defaults to server.image.pullPolicy
+    resources: {}
 
 
 

@@ -14,10 +14,11 @@ spec:
       netbird-app: {{ include "netbird.fullname" . }}-server
   template:
     metadata:
-      {{- with .Values.server.annotations }}
       annotations:
+        checksum/config: {{ include "netbird.serverConfig" . | sha256sum }}
+        {{- with .Values.server.annotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         netbird-app: {{ include "netbird.fullname" . }}-server
         {{- include "netbird.labels" . | nindent 8 }}
@@ -25,6 +26,26 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
+      initContainers:
+        - name: config-init
+          image: "{{ .Values.server.configInit.image.repository | default .Values.server.image.repository }}:{{ .Values.server.configInit.image.tag | default .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.configInit.image.pullPolicy | default .Values.server.image.pullPolicy }}
+          command: ['sh', '-c']
+          args:
+            - |
+              {{- include "netbird.serverConfigInitScript" . | nindent 14 }}
+          env:
+            {{- include "netbird.secretEnv" (dict "root" $ "map" .Values.server.secretEnv) | trim | nindent 12 }}
+          {{- with .Values.server.configInit.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config-template
+              mountPath: /netbird-config-template
+              readOnly: true
+            - name: config
+              mountPath: {{ dir .Values.server.persistence.configMountPath }}
       containers:
         - name: server
           image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
@@ -69,15 +90,18 @@ spec:
               subPath: {{ .Values.server.persistence.subPath }}
               mountPath: {{ .Values.server.persistence.mountPath }}
             - name: config
-              subPath: config.yaml
-              mountPath: {{ .Values.server.persistence.configMountPath }}
+              mountPath: {{ dir .Values.server.persistence.configMountPath }}
+              readOnly: true
             {{- with .Values.server.extra_volumeMounts }}
             {{ toYaml . | nindent 12 }}
             {{- end }}
       volumes:
+        - name: config-template
+          configMap:
+            name: {{ include "netbird.fullname" . }}-config
         - name: config
-          secret:
-            secretName: {{ include "netbird.fullname" . }}-config
+          emptyDir:
+            medium: Memory
         - name: {{ .Values.global.persistence.volumeName }}
           {{- if .Values.global.persistence.enabled }}
           persistentVolumeClaim:

@@ -60,3 +60,62 @@ Create the name of the service account to use
 {{- default "default" .Values.global.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+Name of the single Secret shared by server and dashboard.
+*/}}
+{{- define "netbird.secretName" -}}
+{{- default (printf "%s-secrets" (include "netbird.fullname" .)) .Values.global.existingSecret }}
+{{- end }}
+
+{{/*
+Render a container env list from a map of ENV_VAR -> secret key, all read from the shared Secret.
+Usage: include "netbird.secretEnv" (dict "root" $ "map" .Values.server.secretEnv)
+*/}}
+{{- define "netbird.secretEnv" -}}
+{{- range $env, $key := .map }}
+- name: {{ $env }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "netbird.secretName" $.root }}
+      key: {{ $key }}
+{{- end }}
+{{- end }}
+
+{{/*
+Rendered server config.yaml: domain-derived defaults, then user config on top.
+Secret fields are emitted as ${KEY} placeholders that the config-init container substitutes.
+*/}}
+{{- define "netbird.serverConfig" -}}
+{{- $domain := required "global.domain.global is required" .Values.global.domain.global -}}
+{{- $derived := dict "server" (dict
+      "listenAddress" (printf ":%v" .Values.global.server.port)
+      "exposedAddress" (printf "https://%s:443" $domain)
+      "stunPorts" (list .Values.global.server.stun_port)
+      "dataDir" .Values.server.persistence.dataDir
+      "authSecret" "${NB_AUTH_SECRET}"
+      "auth" (dict
+        "issuer" (printf "https://%s/oauth2" $domain)
+        "dashboardRedirectURIs" (list
+          (printf "https://%s/nb-auth" $domain)
+          (printf "https://%s/nb-silent-auth" $domain)))
+      "store" (dict "encryptionKey" "${NB_STORE_ENCRYPTION_KEY}")) -}}
+{{- $merged := mergeOverwrite $derived (deepCopy (.Values.server.config | default dict)) -}}
+{{- toYaml $merged -}}
+{{- end }}
+
+{{/*
+Shell script run by the config-init container: verify secret env vars are set, then substitute
+${KEY} placeholders in the ConfigMap template and write the final config.yaml.
+*/}}
+{{- define "netbird.serverConfigInitScript" -}}
+set -eu
+{{- range $env, $_ := .Values.server.secretEnv }}
+{{ printf ": \"${%s:?%s must be set in the shared secret}\"" $env $env }}
+{{- end }}
+sed \
+{{- range $env, $_ := .Values.server.secretEnv }}
+{{ printf "  -e \"s|\\${%s}|${%s}|g\" \\" $env $env }}
+{{- end }}
+  /netbird-config-template/config.yaml > {{ .Values.server.persistence.configMountPath | quote }}
+{{- end }}

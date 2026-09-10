@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "netbird.fullname" . }}-dashboard-env
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "netbird.labels" . | nindent 4 }}
+data:
+  {{- $domain := required "global.domain.global is required" .Values.global.domain.global }}
+  {{- $derived := dict
+        "NETBIRD_MGMT_API_ENDPOINT" (printf "https://%s:443" $domain)
+        "NETBIRD_MGMT_GRPC_API_ENDPOINT" (printf "https://%s:443" $domain)
+        "AUTH_AUTHORITY" (printf "https://%s/oauth2" $domain) }}
+  {{- range $k, $v := mergeOverwrite $derived (.Values.dashboard.env | default dict) }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}
