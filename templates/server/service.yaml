@@ -6,6 +6,10 @@ metadata:
   labels:
     {{- include "netbird.labels" . | nindent 4 }}
     netbird-app: {{ include "netbird.fullname" . }}-server
+  {{- with .Values.server.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 8 }}
+  {{- end }}
 spec:
   type: {{ .Values.server.service.type }}
   ports:
