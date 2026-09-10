@@ -1,11 +1,10 @@
-{{- if and .Values.global.persistence.enabled (not .Values.global.persistence.existingClaim) }}
-{{- $fullName := include "netbird.fullname" . -}}
-{{- $volumeName := .Values.global.persistence.volumeName -}}
-{{- $pvcName := printf "%s-%s" $fullName $volumeName -}}
+{{- $p := .Values.server.persistence }}
+{{- if and $p.enabled (not $p.existingClaim) }}
+{{- $pvcName := printf "%s-%s" (include "netbird.fullname" .) $p.volumeName -}}
 
-{{- $storageClass := .Values.global.persistence.storageClass -}}
+{{- $storageClass := $p.storageClass -}}
 {{- if not $storageClass -}}
-  {{- $existing := lookup "v1" "PersistentVolumeClaim" .Release.Namespace $pvcName -}}
+  {{- $existing := lookup "v1" "PersistentVolumeClaim" .Values.global.namespace $pvcName -}}
   {{- if and $existing $existing.spec $existing.spec.storageClassName -}}
     {{- $storageClass = $existing.spec.storageClassName -}}
   {{- end -}}
@@ -18,23 +17,34 @@ metadata:
   namespace: {{ .Values.global.namespace }}
   labels:
     {{- include "netbird.labels" . | nindent 4 }}
+    {{- with $p.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
   annotations:
     "helm.sh/resource-policy": keep
-    {{- with .Values.global.persistence.annotations }}
-      {{- toYaml . | nindent 4 }}
+    {{- with $p.annotations }}
+    {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
-  {{- with .Values.global.persistence.accessModes }}
+  {{- with $p.accessModes }}
   accessModes:
-    {{- toYaml . | nindent 8 }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
   resources:
     requests:
-      storage: {{ .Values.global.persistence.size | quote }}
+      storage: {{ $p.size | quote }}
   {{- if $storageClass }}
   storageClassName: {{ $storageClass | quote }}
   {{- end }}
-  {{- if .Values.global.persistence.volumeMode }}
-  volumeMode: {{ .Values.global.persistence.volumeMode | quote }}
+  {{- with $p.volumeMode }}
+  volumeMode: {{ . | quote }}
+  {{- end }}
+  {{- with $p.selector }}
+  selector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $p.dataSource }}
+  dataSource:
+    {{- toYaml . | nindent 4 }}
   {{- end }}
 {{- end }}

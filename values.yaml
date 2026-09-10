@@ -24,22 +24,6 @@ global:
     authSecret: ''          # openssl rand -base64 32 ; relay shared secret (server.authSecret)
     storeEncryptionKey: ''  # openssl rand -base64 32 ; datastore key (server.store.encryptionKey)
 
-  persistence:
-    enabled: true
-    storageClass:
-    volumeName: 'data'
-    existingClaim: ''
-    accessModes:
-      - ReadWriteOnce
-    size: 4Gi
-    volumeMode:
-    annotations: {}
-    labels: {}
-    selector: {}
-    dataSource: {}
-    overrideVolume:
-    overrideVolumeMount:
-
   ingress:
     enabled: false
     className: ''
@@ -120,10 +104,24 @@ server:
   extra_volumeMounts: []
   extra_args: []
   persistence:
-    dataDir: /var/lib/netbird
-    mountPath: /var/lib/netbird
-    configMountPath: /etc/netbird/config.yaml
-    subPath: 'server'
+    # PVC (only the server uses storage)
+    enabled: true            # false -> emptyDir
+    existingClaim: ''        # use this PVC instead of creating one
+    volumeName: 'data'       # volume name; created PVC is named <release>-<volumeName>
+    storageClass:            # empty -> cluster default (an existing claim's class is preserved on upgrade)
+    accessModes:
+      - ReadWriteOnce
+    size: 4Gi
+    volumeMode:
+    annotations: {}
+    labels: {}
+    selector: {}
+    dataSource: {}
+    # Mounts
+    dataDir: /var/lib/netbird                  # server.dataDir in config.yaml
+    mountPath: /var/lib/netbird                # where the volume is mounted in the container
+    subPath: 'server'                          # subPath within the volume (pre-0.66 installs used 'management')
+    configMountPath: /etc/netbird/config.yaml  # where the rendered config is written
 
   # Server config.yaml. This tree is written verbatim to a ConfigMap after the chart adds domain-derived
   # fields (listenAddress, exposedAddress, stunPorts, dataDir, auth.issuer, auth.dashboardRedirectURIs)

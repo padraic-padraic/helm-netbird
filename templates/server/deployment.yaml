@@ -86,7 +86,7 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
-            - name: {{ .Values.global.persistence.volumeName }}
+            - name: {{ .Values.server.persistence.volumeName }}
               subPath: {{ .Values.server.persistence.subPath }}
               mountPath: {{ .Values.server.persistence.mountPath }}
             - name: config
@@ -102,10 +102,10 @@ spec:
         - name: config
           emptyDir:
             medium: Memory
-        - name: {{ .Values.global.persistence.volumeName }}
-          {{- if .Values.global.persistence.enabled }}
+        - name: {{ .Values.server.persistence.volumeName }}
+          {{- if .Values.server.persistence.enabled }}
           persistentVolumeClaim:
-                claimName: {{- if .Values.global.persistence.existingClaim }} {{ .Values.global.persistence.existingClaim }}{{- else }} {{ include "netbird.fullname" . }}-{{ .Values.global.persistence.volumeName }}{{- end }}
+            claimName: {{ .Values.server.persistence.existingClaim | default (printf "%s-%s" (include "netbird.fullname" .) .Values.server.persistence.volumeName) }}
           {{- else }}
           emptyDir:
             sizeLimit: 1Gi

@@ -122,7 +122,9 @@ Chart 2.0.0 removes the `<release>-config` Secret. `authSecret` is no longer har
 `global.secrets.storeEncryptionKey`. Peers authenticate to the relay with this value, so if you
 were relying on the old built-in value, set `global.secrets.authSecret` to `taSJiSBCFkyeEqYv7iuV9neScSOCHmN0MvW4efR3lPE` to keep
 existing peers connected, then rotate it when convenient. Anything you previously changed by forking the secret
-template now belongs under `server.config`.
+template now belongs under `server.config`. PVC settings moved from `global.persistence` to `server.persistence`;
+the PVC name and contents are unchanged, so existing claims are reused as long as you move any overrides
+(`size`, `storageClass`, `existingClaim`, ...) to the new location.
 
 ---
 
@@ -192,18 +194,19 @@ template now belongs under `server.config`.
 | server.secretEnv                   | Env var -> Secret key map  | see values.yaml              |
 | server.configInit.image            | Init container image       | server image                 |
 | server.configInit.resources        | Init container resources   | `{}`                         |
-| server.persistence.enabled         | Enable persistence         | `true`                       |
-| server.persistence.storageClass    | Storage class name         |                              |
-| server.persistence.volumeName      | Name of persistent volume  | `'data'`                     |
-| server.persistence.existingClaim   | Use existing PVC           | `''`                         |
-| server.persistence.mountPath       | Where to mount storage     | `'/var/lib/netbird'`         |
-| server.persistence.configMountPath | Where to mount config      | `'/etc/netbird/config.yaml'` |
-| server.persistence.subPath         | SubPath for mount          | `''`                         |
+| server.persistence.enabled         | Create/use a PVC (false = emptyDir) | `true`              |
+| server.persistence.existingClaim   | Use an existing PVC        | `''`                         |
+| server.persistence.volumeName      | Volume name; PVC is `<release>-<volumeName>` | `'data'`   |
+| server.persistence.storageClass    | Storage class (empty = default) |                         |
 | server.persistence.accessModes     | AccessModes list           | `[ReadWriteOnce]`            |
-| server.persistence.size            | Requested disk size        | `'1Gi'`                      |
+| server.persistence.size            | Requested disk size        | `'4Gi'`                      |
 | server.persistence.volumeMode      | Volume mode                |                              |
-| server.persistence.annotations     | Volume/PVC annotations     | `{}`                         |
-| server.persistence.labels          | Volume/PVC labels          | `{}`                         |
-| server.persistence.selector        | Selector map for PVC       | `{}`                         |
+| server.persistence.annotations     | PVC annotations            | `{}`                         |
+| server.persistence.labels          | PVC labels                 | `{}`                         |
+| server.persistence.selector        | PVC selector               | `{}`                         |
 | server.persistence.dataSource      | PVC data source            | `{}`                         |
+| server.persistence.dataDir         | `server.dataDir` in config | `'/var/lib/netbird'`         |
+| server.persistence.mountPath       | Where to mount storage     | `'/var/lib/netbird'`         |
+| server.persistence.subPath         | SubPath within the volume  | `'server'`                   |
+| server.persistence.configMountPath | Where the rendered config is written | `'/etc/netbird/config.yaml'` |
 
