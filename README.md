@@ -14,7 +14,7 @@ This chart provides a means of deploying Netbird to kubernetes.
 
 To use the minimal setup, you will require
 
-- A working kubernetes cluster with GatewayAPI enabled
+- A working kubernetes cluster with Gateway API enabled (UDPRoute uses the GA `v1` API on Gateway API 1.6+, e.g. Envoy Gateway 1.9+, and falls back to `v1alpha2` on older installs)
 - A default storage class with space to provision a PVC (default 4Gi)
 - A valid hostname and the ability to access it via https and UDP 3478 through the Gateway
 
@@ -146,6 +146,7 @@ the PVC name and contents are unchanged, so existing claims are reused as long a
 | global.route.vendor               | Type of GatewayAPI installed, eg. `envoy`.  Automatically installs traffic policies to fix timeouts. | `''`                     |
 | global.route.parentRefs           | The gateway parentRefs                                                                               | `[]`                     |
 | global.route.stunParentRefs       | STUN likely uses a different port in the gateway, so you can specify a different parent ref here     | `[]`                     |
+| global.route.udpRouteApiVersion   | UDPRoute apiVersion; empty auto-detects `v1` (Gateway API >= 1.6) else `v1alpha2`                    | `''`                     |
 | global.route.annotations          | Annotations to apply to GatewayAPI resources                                                         | `{}`                     |
 | global.serviceAccount.create      | Create service account                                                                               | `true`                   |
 | global.serviceAccount.automount   | Auto-mount service account                                                                           | `true`                   |

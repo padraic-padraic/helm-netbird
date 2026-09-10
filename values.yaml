@@ -36,6 +36,9 @@ global:
     parentRefs: []
     # STUN likely uses a different port in the gateway, so you can specify a different parent ref here
     stunParentRefs: []
+    # API version for the STUN UDPRoute. Empty = auto: 'gateway.networking.k8s.io/v1' when the cluster serves it
+    # (Gateway API >= 1.6), otherwise 'gateway.networking.k8s.io/v1alpha2'.
+    udpRouteApiVersion: ''
     annotations: {}
 
   serviceAccount:

@@ -79,7 +79,9 @@ spec:
 
 
 ---
-apiVersion: gateway.networking.k8s.io/v1alpha2
+{{- /* UDPRoute is GA (v1) since Gateway API 1.6; older clusters only serve v1alpha2. Auto-detect unless overridden. */ -}}
+{{- $udpApiVersion := .Values.global.route.udpRouteApiVersion | default (ternary "gateway.networking.k8s.io/v1" "gateway.networking.k8s.io/v1alpha2" (.Capabilities.APIVersions.Has "gateway.networking.k8s.io/v1/UDPRoute")) }}
+apiVersion: {{ $udpApiVersion }}
 kind: UDPRoute
 metadata:
   name: {{ $fullName }}-stun
@@ -95,8 +97,6 @@ spec:
   parentRefs:
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  hostnames:
-    - '{{ .Values.global.domain.global }}'
   rules:
     - backendRefs:
         - group: ''
