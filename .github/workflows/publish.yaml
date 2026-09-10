@@ -1,10 +1,10 @@
-name: Publish Helm chart to external helm-charts repo
+name: Publish Helm chart to GHCR
 
 env:
   CHART_NAME: netbird
-  HELM_CHARTS_REPO: https://github.com/cclloyd/helm-charts.git
   GHCR_REGISTRY: ghcr.io
-  GHCR_NAMESPACE: cclloyd/helm-netbird
+  # Publishes to ghcr.io/<owner>/helm-netbird/netbird, e.g. ghcr.io/padraic-padraic/helm-netbird/netbird
+  GHCR_NAMESPACE: ${{ github.repository_owner }}/helm-netbird
 
 on:
   push:
@@ -12,169 +12,53 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout helm-${{ env.CHART_NAME }}
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Helm
-        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v4
 
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
-      - name: Prepare main branch and compute chart version
-        id: prepare
+      - name: Compute chart version from tag
         run: |
           set -e
-
-          # Find the latest semver tag: vX.X.X
-          latest_tag=$(git ls-remote --tags origin \
-            | awk '{print $2}' \
-            | sed 's#refs/tags/##' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sort -V | tail -n1)
-          latest_tag=${latest_tag:-v0.1.0}
-
-          mkdir -p helm-charts
-          if git ls-remote --exit-code --heads "$HELM_CHARTS_REPO" main >/dev/null; then
-            git clone --single-branch --branch main "$HELM_CHARTS_REPO" helm-charts
-            cd helm-charts
-            if [[ "${GITHUB_REF}" == "refs/heads/dev" ]]; then
-              base_version="${latest_tag#v}"
-              max_n=0
-              for f in ${CHART_NAME}-${base_version}-*.tgz; do
-                [[ $f =~ ${CHART_NAME}-${base_version}-([0-9]+)\.tgz ]] \
-                  && [[ ${BASH_REMATCH[1]} -gt $max_n ]] \
-                  && max_n=${BASH_REMATCH[1]}
-              done
-              version="${base_version}-$((max_n + 1))"
-            elif [[ "${GITHUB_REF}" =~ refs/tags/v([0-9]+\.[0-9]+\.[0-9]+) ]]; then
-              version="${BASH_REMATCH[1]}"
-            else
-              version="${latest_tag#v}"
-            fi
-            cd ..
+          if [[ "${GITHUB_REF}" =~ ^refs/tags/v([0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?)$ ]]; then
+            version="${BASH_REMATCH[1]}"
           else
-            git clone --no-checkout "$HELM_CHARTS_REPO" helm-charts
-            cd helm-charts
-            git checkout --orphan main
-            git rm -rf . || true
-            git config user.name 'GitHub Actions'
-            git config user.email 'actions@github.com'
-            version="${latest_tag#v}"
-            touch .nojekyll
-            git add .nojekyll
-            git commit -m "Initialize main with .nojekyll"
-            cd ..
-          fi
-
-          if [ -z "$version" ]; then
-            echo "ERROR: Could not determine chart version."
+            echo "ERROR: tag ${GITHUB_REF} is not of the form vX.Y.Z"
             exit 1
           fi
+          echo "Using chart version: ${version}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
-          echo "Using chart version: v$version"
-          echo "VERSION=$version" >> $GITHUB_ENV
-          echo "PKG_VERSION=$version" >> $GITHUB_ENV
+      - name: Lint chart
+        run: helm lint ./ --set global.domain.global=netbird.example.com --set global.existingSecret=netbird-secrets
 
-      - name: Update Chart.yaml version
-        run: |
-          yq -i ".version = \"${VERSION}\"" Chart.yaml
-
-
-
-      - name: Package ${{ env.CHART_NAME }} chart
+      - name: Package chart
         run: |
           mkdir -p packages
-          helm package ./ \
-            --version "${VERSION}" \
-            --destination packages
-      - name: Package ${{ env.CHART_NAME }} chart (0.0.0-latest)
-        run: |
-          # Save current Chart.yaml
-          cp Chart.yaml Chart.yaml.bak
-
-          yq -i '.version = "0.0.0-latest"' Chart.yaml
-
-          # Package chart with the "latest" version
-          helm package ./ \
-            --version "0.0.0-latest" \
-            --destination packages
-
-          # Restore original Chart.yaml
-          mv Chart.yaml.bak Chart.yaml
-
-
-
+          helm package ./ --version "${VERSION}" --destination packages
+          helm package ./ --version "0.0.0-latest" --destination packages
 
       - name: Login to GHCR
-        env:
-          GITHUB_TOKEN: ${{ secrets.HELM_CHARTS_PAT }}
         run: |
-          echo "${GITHUB_TOKEN}" | \
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
             helm registry login "${GHCR_REGISTRY}" \
-              --username "${GITHUB_ACTOR}" \
+              --username "${{ github.actor }}" \
               --password-stdin
 
-      - name: Push Helm chart to GHCR (OCI)
+      - name: Push chart to GHCR (OCI)
         run: |
-          CHART_TGZ="packages/${CHART_NAME}-${PKG_VERSION}.tgz"
-          if [ ! -f "${CHART_TGZ}" ]; then
-            echo "Chart package ${CHART_TGZ} not found"
-            exit 1
-          fi
-          helm push "${CHART_TGZ}" \
-            "oci://${GHCR_REGISTRY}/${GHCR_NAMESPACE}"
-
-      - name: Push Helm chart to GHCR (OCI, 0.0.0-latest)
-        run: |
-          LATEST_TGZ="packages/${CHART_NAME}-0.0.0-latest.tgz"
-          if [ ! -f "${LATEST_TGZ}" ]; then
-            echo "Chart package ${LATEST_TGZ} not found"
-            exit 1
-          fi
-          helm push "${LATEST_TGZ}" \
-            "oci://${GHCR_REGISTRY}/${GHCR_NAMESPACE}"
-
-
-
-      - name: Copy packaged chart to subfolder (/charts/${{ env.CHART_NAME }})
-        run: |
-          mkdir -p helm-charts/charts/${CHART_NAME}
-          cp packages/${CHART_NAME}-${PKG_VERSION}.tgz helm-charts/charts/${CHART_NAME}/
-
-
-      - name: Regenerate index.yaml at root (recursive)
-        run: |
-          cd helm-charts
-          CHARTS_URL="https://cclloyd.github.io/helm-charts/charts/${CHART_NAME}"
-          INDEX_FILE="index.yaml"
-          if [ -f "${INDEX_FILE}" ]; then
-            helm repo index charts/${CHART_NAME} \
-              --url "${CHARTS_URL}" \
-              --merge "${INDEX_FILE}"
-          else
-            helm repo index charts/${CHART_NAME} \
-              --url "${CHARTS_URL}"
-          fi
-          cp charts/${CHART_NAME}/index.yaml .
-
-
-      - name: Commit & push to main
-        run: |
-          cd helm-charts
-          git config user.name 'GitHub Actions'
-          git config user.email 'actions@github.com'
-          : > .nojekyll
-          git add charts/${CHART_NAME}/${CHART_NAME}-${PKG_VERSION}.tgz index.yaml .nojekyll
-          git commit -m "[ci] Publish ${CHART_NAME} chart ${PKG_VERSION}" || echo "Nothing to commit"
-          git remote set-url origin https://x-access-token:${{ secrets.HELM_CHARTS_PAT }}@github.com/cclloyd/helm-charts.git
-          git push origin main
+          for tgz in "packages/${CHART_NAME}-${VERSION}.tgz" "packages/${CHART_NAME}-0.0.0-latest.tgz"; do
+            if [ ! -f "${tgz}" ]; then
+              echo "Chart package ${tgz} not found"
+              exit 1
+            fi
+            helm push "${tgz}" "oci://${GHCR_REGISTRY}/${GHCR_NAMESPACE}"
+          done
