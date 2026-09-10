@@ -176,7 +176,7 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
   name: {{ $fullName }}-server-management-timeouts
-  namespace: ecumene
+  namespace: {{ .Values.global.namespace }}
 spec:
   targetRefs:
     - group: 'gateway.networking.k8s.io'
@@ -196,7 +196,7 @@ apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:
   name: {{ $fullName }}-server-signal-timeouts
-  namespace: ecumene
+  namespace: {{ .Values.global.namespace }}
 spec:
   targetRefs:
     - group: 'gateway.networking.k8s.io'
