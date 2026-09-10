@@ -11,19 +11,28 @@ on:
     tags:
       - 'v*'
 
-permissions:
-  contents: read
-  packages: write
+# One release at a time per tag; never cancel an in-flight publish.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
 
 jobs:
   publish:
+    name: Package and push chart to GHCR
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # checkout
+      packages: write  # helm push to ghcr.io via GITHUB_TOKEN
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       - name: Compute chart version from tag
         run: |
@@ -47,10 +56,13 @@ jobs:
           helm package ./ --version "0.0.0-latest" --destination packages
 
       - name: Login to GHCR
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | \
+          echo "${GHCR_TOKEN}" | \
             helm registry login "${GHCR_REGISTRY}" \
-              --username "${{ github.actor }}" \
+              --username "${GHCR_USER}" \
               --password-stdin
 
       - name: Push chart to GHCR (OCI)
