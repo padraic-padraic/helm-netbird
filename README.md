@@ -87,9 +87,14 @@ server:
     NB_AUTH_SECRET: authSecret
     NB_STORE_ENCRYPTION_KEY: storeEncryptionKey
 dashboard:
-  secretEnv:
-    AUTH_CLIENT_SECRET: dashboardClientSecret # optional, only if you use an external IdP
+  secretEnv: {}   # leave empty with the embedded IdP, see the warning below
 ```
+
+> **Do not set `AUTH_CLIENT_SECRET` when using the embedded identity provider.** The `netbird-dashboard` OAuth client
+> is registered as a *public* client with no secret. If the dashboard sends any `client_secret`, the token exchange
+> fails with `invalid_client: Invalid client credentials.` and the dashboard shows "Unauthenticated" after login.
+> Only map it (e.g. `AUTH_CLIENT_SECRET: dashboardClientSecret`) when you point `AUTH_AUTHORITY` at an external IdP
+> that issued a confidential client.
 
 ```shell
 kubectl -n netbird create secret generic netbird-secrets \

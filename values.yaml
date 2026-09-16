@@ -81,15 +81,16 @@ dashboard:
     NGINX_SSL_PORT: '443'
     LETSENCRYPT_DOMAIN: none
   # Env vars sourced from the shared Secret (global.existingSecret): env var name -> Secret key.
-  # These take precedence over the same-named variable in env above, e.g.
-  #   AUTH_CLIENT_SECRET: dashboardClientSecret
+  # These take precedence over the same-named variable in env above.
+  # WARNING: with the embedded IdP the dashboard client is public; do NOT map AUTH_CLIENT_SECRET here or login
+  # fails with "invalid_client". Only use it for an external IdP with a confidential client.
   secretEnv: {}
 
 
 server:
   image:
     repository: netbirdio/netbird-server
-    tag: 0.78.1
+    tag: 0.78.2
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
