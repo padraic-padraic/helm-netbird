@@ -9,11 +9,15 @@ global:
   domain:
     global: '' # This is the only required domain.  The below ones are optional for if your network topology requires them.
     vpn: ''  # This is the domain used internally by netbird for vpn clients.
+    relay: ''  # Hostname peers use for the in-cluster relay (and its STUN). Defaults to global.
   dashboard:
     port: 80
   server:
     port: 80
-    stun_port: 3478
+    stun_port: 3478  # Only used while the server runs the embedded relay/STUN (relay.enabled=false)
+  relay:
+    port: 80         # In-cluster relay Service/container port (websocket at /relay)
+    stun_port: 3478  # In-cluster relay STUN port (UDP)
 
   # One pre-existing Secret shared by the server and the dashboard. Each service maps env var names to keys
   # in this Secret via <service>.secretEnv below.
@@ -51,7 +55,7 @@ global:
 dashboard:
   image:
     repository: netbirdio/dashboard
-    tag: v2.92.0
+    tag: v2.94.0
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
@@ -90,7 +94,7 @@ dashboard:
 server:
   image:
     repository: netbirdio/netbird-server
-    tag: 0.79.0
+    tag: 0.80.0
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
@@ -163,4 +167,51 @@ server:
     resources: {}
 
 
-
+# Relays other than the server's embedded one. Enabling this disables the embedded relay AND the embedded STUN
+# server (NetBird runs STUN as part of the relay), so STUN must then come from the in-cluster relay or from
+# relay.external.stuns. Peers are told about every address listed here; all relays must share
+# global.secrets.authSecret (server.relays.secret).
+relay:
+  enabled: false
+  # Relay Deployment in this cluster, exposed on https://<global.domain.relay>/relay through the Gateway.
+  # Advertised to peers as rels://<global.domain.relay>:443, the same address the embedded relay used.
+  inCluster:
+    enabled: false
+    exposedAddress: ''  # override the advertised address, e.g. rels://relay.example.com:443
+    stun:
+      enabled: true     # serve STUN from the relay pod; the UDPRoute then targets the relay instead of the server
+    image:
+      repository: netbirdio/relay
+      tag: ''           # defaults to Chart.appVersion
+      pullPolicy: IfNotPresent
+    annotations: {}
+    labels: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    replicaCount: 1
+    resources: {}
+    livenessProbe:
+    readinessProbe:
+    service:
+      type: ClusterIP
+      annotations: {}
+    extra_volumes: []
+    extra_volumeMounts: []
+    extra_args: []
+    logLevel: info
+    # Upstream proxies whose X-Real-Ip header is trusted (comma-joined into NB_TRUSTED_PROXIES)
+    trustedProxies:
+      - '0.0.0.0/0'
+    # Extra/override env for the relay container (NB_* flags). Chart-derived values are set first; these win.
+    env: {}
+    # Env vars sourced from the shared Secret (global.existingSecret): env var name -> Secret key.
+    secretEnv:
+      NB_AUTH_SECRET: authSecret
+  # Relays outside this chart. Listed after the in-cluster relay when both are configured.
+  external:
+    addresses: []       # e.g. ['rels://relay1.example.com:443']
+    # STUN servers for peers (server.stuns). Required when there is no in-cluster relay serving STUN.
+    # Prepended with the in-cluster relay's STUN when relay.inCluster.stun.enabled.
+    stuns: []           # e.g. [{uri: 'stun:relay1.example.com:3478'}]
+  credentialsTTL: 12h   # server.relays.credentialsTTL

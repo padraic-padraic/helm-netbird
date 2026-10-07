@@ -120,6 +120,47 @@ Dashboard environment variables default from `dashboard.env` plus the domain-der
 `NETBIRD_MGMT_GRPC_API_ENDPOINT` and `AUTH_AUTHORITY`, rendered into a ConfigMap. Override any of them under
 `dashboard.env`, or source them from the shared Secret via `dashboard.secretEnv` as shown above.
 
+# Relays
+
+By default the server runs NetBird's embedded relay (served at `/relay`) and the embedded STUN server. The `relay`
+block replaces both with relays you choose: an in-cluster relay Deployment, relays outside the cluster, or a mix.
+
+> **STUN moves with the relay.** NetBird's combined server runs STUN as part of its embedded relay, so as soon as
+> `server.relays` is set the server stops serving STUN as well. The chart therefore requires STUN to come from the
+> in-cluster relay (`relay.inCluster.stun.enabled`, the default) or from `relay.external.stuns`, and fails to render
+> otherwise. The UDPRoute follows: it targets the relay Service when the in-cluster relay serves STUN, and is not
+> created at all when STUN is external.
+
+In-cluster relay. A `<release>-relay` Deployment and Service are created, an HTTPRoute sends `/relay` on
+`global.domain.relay` (default: `global.domain.global`) to it, and peers are given `rels://<domain>:443`, the
+same address the embedded relay used, so existing peers reconnect without changes.
+
+```yaml
+relay:
+  enabled: true
+  inCluster:
+    enabled: true
+```
+
+External relays. List their advertised addresses and the STUN servers peers should use. Every relay must be
+started with the same auth secret as `global.secrets.authSecret` (`NB_AUTH_SECRET` on the relay).
+
+```yaml
+relay:
+  enabled: true
+  external:
+    addresses:
+      - rels://relay-eu.example.com:443
+      - rels://relay-us.example.com:443
+    stuns:
+      - uri: stun:relay-eu.example.com:3478   # a relay started with NB_ENABLE_STUN=true, or any STUN server
+```
+
+Both can be combined; the in-cluster relay is listed first. The relay container is configured through `NB_*`
+environment variables derived from the chart (listen/exposed address, STUN, health and metrics ports, trusted
+proxies); add or override any of them under `relay.inCluster.env`. To use a different relay secret, override
+`server.config.server.relays.secret` with a `${VAR}` placeholder mapped in `server.secretEnv`.
+
 # Upgrading from 1.x
 
 Chart 2.0.0 removes the `<release>-config` Secret. `authSecret` is no longer hardcoded; you must provide it via
@@ -142,9 +183,12 @@ the PVC name and contents are unchanged, so existing claims are reused as long a
 | global.namespace                  | Namespace for Netbird                                                                                | `'netbird'`              |
 | global.domain.global              | Domain name used for access (e.g. netbird.example.com)                                               | `''`                     |
 | global.domain.vpn                 | Domain name used for peer overlay network (eg peer1.netbird-vpn.example.com)                         | `<global.domain.global>` |
+| global.domain.relay               | Hostname for the in-cluster relay route, advertised relay address and STUN URI                       | `<global.domain.global>` |
 | global.dashboard.port             | Dashboard HTTP port                                                                                  | `80`                     |
 | global.server.port                | Server HTTP port                                                                                     | `80`                     |
-| global.server.stun_port           | Server STUN port                                                                                     | `3478`                   |
+| global.server.stun_port           | Server STUN port (embedded relay only, i.e. `relay.enabled=false`)                                   | `3478`                   |
+| global.relay.port                 | In-cluster relay HTTP port                                                                           | `80`                     |
+| global.relay.stun_port            | In-cluster relay STUN port (UDP)                                                                     | `3478`                   |
 | global.existingSecret             | Pre-existing Secret shared by server and dashboard                                                   | `''`                     |
 | global.secrets                    | Key/value map used to create the Secret when `global.existingSecret` is empty                        | see values.yaml          |
 | global.route.enabled              | Enable GatewayAPI access                                                                             | `false`                  |
@@ -163,7 +207,7 @@ the PVC name and contents are unchanged, so existing claims are reused as long a
 | config                             | description                | default                      |
 |------------------------------------|----------------------------|------------------------------|
 | dashboard.image.repository         | Dashboard image repository | `'netbirdio/dashboard'`      |
-| dashboard.image.tag                | Dashboard image tag        | `'v2.92.0'`                  |
+| dashboard.image.tag                | Dashboard image tag        | `'v2.94.0'`                  |
 | dashboard.image.pullPolicy         | Image pull policy          | `'IfNotPresent'`             |
 | dashboard.annotations              | Pod annotations            | `{}`                         |
 | dashboard.labels                   | Pod labels                 | `{}`                         |
@@ -181,7 +225,7 @@ the PVC name and contents are unchanged, so existing claims are reused as long a
 | dashboard.secretEnv                | Env var -> Secret key map  | `{}`                         |
 | **Server**                         |                            |                              |
 | server.image.repository            | Server image repository    | `'netbirdio/netbird-server'` |
-| server.image.tag                   | Server image tag           | `'0.78.1'`                   |
+| server.image.tag                   | Server image tag           | `'0.79.0'`                   |
 | server.image.pullPolicy            | Image pull policy          | `'IfNotPresent'`             |
 | server.annotations                 | Pod annotations            | `{}`                         |
 | server.labels                      | Pod labels                 | `{}`                         |
@@ -215,4 +259,32 @@ the PVC name and contents are unchanged, so existing claims are reused as long a
 | server.persistence.mountPath       | Where to mount storage     | `'/var/lib/netbird'`         |
 | server.persistence.subPath         | SubPath within the volume  | `'server'`                   |
 | server.persistence.configMountPath | Where the rendered config is written | `'/etc/netbird/config.yaml'` |
-
+| **Relay**                          |                            |                              |
+| relay.enabled                      | Use the relays below instead of the server's embedded relay and STUN | `false`  |
+| relay.inCluster.enabled            | Deploy a relay in the cluster | `false`                   |
+| relay.inCluster.exposedAddress     | Address advertised for the in-cluster relay | `rels://<global.domain.relay>:443` |
+| relay.inCluster.stun.enabled       | Serve STUN from the in-cluster relay (UDPRoute targets it) | `true` |
+| relay.inCluster.image.repository   | Relay image repository     | `'netbirdio/relay'`          |
+| relay.inCluster.image.tag          | Relay image tag            | `Chart.appVersion`           |
+| relay.inCluster.image.pullPolicy   | Image pull policy          | `'IfNotPresent'`             |
+| relay.inCluster.annotations        | Pod annotations            | `{}`                         |
+| relay.inCluster.labels             | Pod labels                 | `{}`                         |
+| relay.inCluster.nodeSelector       | Node selector              | `{}`                         |
+| relay.inCluster.tolerations        | Tolerations                | `[]`                         |
+| relay.inCluster.affinity           | Affinity rules             | `{}`                         |
+| relay.inCluster.replicaCount       | Replica count              | `1`                          |
+| relay.inCluster.resources          | Resource limits/requests   | `{}`                         |
+| relay.inCluster.livenessProbe      | Liveness probe settings    | HTTP `/health` on 9000       |
+| relay.inCluster.readinessProbe     | Readiness probe settings   | HTTP `/health` on 9000       |
+| relay.inCluster.service.type       | Service type               | `'ClusterIP'`                |
+| relay.inCluster.service.annotations| Service annotations        | `{}`                         |
+| relay.inCluster.extra_volumes      | Additional volumes         | `[]`                         |
+| relay.inCluster.extra_volumeMounts | Additional volume mounts   | `[]`                         |
+| relay.inCluster.extra_args         | Additional CLI arguments   | `[]`                         |
+| relay.inCluster.logLevel           | Relay log level            | `'info'`                     |
+| relay.inCluster.trustedProxies     | Proxies whose X-Real-Ip is trusted (`NB_TRUSTED_PROXIES`) | `['0.0.0.0/0']` |
+| relay.inCluster.env                | Extra/override `NB_*` env  | `{}`                         |
+| relay.inCluster.secretEnv          | Env var -> Secret key map  | `{NB_AUTH_SECRET: authSecret}` |
+| relay.external.addresses           | Relays outside the chart (`rels://host:443`) | `[]`       |
+| relay.external.stuns               | STUN hosts for peers (`[{uri: 'stun:host:3478'}]`) | `[]` |
+| relay.credentialsTTL               | `server.relays.credentialsTTL` | `'12h'`                  |

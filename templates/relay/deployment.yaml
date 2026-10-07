@@ -1,0 +1,117 @@
+{{- if include "netbird.relay.inCluster" . -}}
+{{- $relay := .Values.relay.inCluster -}}
+{{- /* Chart-derived NB_* flags first, then relay.inCluster.env on top so users can override any of them. */ -}}
+{{- $env := dict
+      "NB_LISTEN_ADDRESS" (printf ":%v" .Values.global.relay.port)
+      "NB_EXPOSED_ADDRESS" (include "netbird.relay.exposedAddress" .)
+      "NB_METRICS_PORT" "9090"
+      "NB_HEALTH_LISTEN_ADDRESS" ":9000"
+      "NB_LOG_LEVEL" $relay.logLevel
+      "NB_ENABLE_STUN" (ternary "true" "false" $relay.stun.enabled)
+      "NB_STUN_PORTS" (toString .Values.global.relay.stun_port)
+      "NB_TRUSTED_PROXIES" (join "," ($relay.trustedProxies | default list)) -}}
+{{- $env = merge ($relay.env | default dict) $env -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ include "netbird.fullname" . }}-relay"
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "netbird.labels" . | nindent 4 }}
+    netbird-app: {{ include "netbird.fullname" . }}-relay
+spec:
+  replicas: {{ $relay.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "netbird.selectorLabels" . | nindent 6 }}
+      netbird-app: {{ include "netbird.fullname" . }}-relay
+  template:
+    metadata:
+      annotations:
+        checksum/env: {{ toJson $env | sha256sum }}
+        {{- with $relay.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        netbird-app: {{ include "netbird.fullname" . }}-relay
+        {{- include "netbird.labels" . | nindent 8 }}
+        {{- with $relay.labels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      containers:
+        - name: relay
+          image: "{{ $relay.image.repository }}:{{ $relay.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ $relay.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.global.relay.port }}
+              protocol: TCP
+            {{- if $relay.stun.enabled }}
+            - name: stun
+              containerPort: {{ .Values.global.relay.stun_port }}
+              protocol: UDP
+            {{- end }}
+            - name: health
+              containerPort: 9000
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          {{- with $relay.extra_args }}
+          args:
+            {{- range . }}
+            - "{{ . }}"
+            {{- end }}
+          {{- end }}
+          env:
+            {{- range $name, $value := $env }}
+            - name: {{ $name }}
+              value: {{ $value | toString | quote }}
+            {{- end }}
+            {{- include "netbird.secretEnv" (dict "root" $ "map" $relay.secretEnv) | trim | nindent 12 }}
+          livenessProbe:
+            {{- if $relay.livenessProbe }}
+            {{- toYaml $relay.livenessProbe | nindent 12 }}
+            {{- else }}
+              httpGet:
+                path: /health
+                port: health
+              initialDelaySeconds: 15
+              periodSeconds: 30
+            {{- end }}
+          readinessProbe:
+            {{- if $relay.readinessProbe }}
+            {{- toYaml $relay.readinessProbe | nindent 12 }}
+            {{- else }}
+              httpGet:
+                path: /health
+                port: health
+              initialDelaySeconds: 5
+              periodSeconds: 15
+            {{- end }}
+          {{- with $relay.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $relay.extra_volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with $relay.extra_volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $relay.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $relay.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $relay.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

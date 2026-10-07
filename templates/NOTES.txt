@@ -8,6 +8,12 @@
           )))fffffffffffff))
             ffffffffffffff)           Further steps:
            )))ffffffffffff              - Be the first user to sign-in to ensure that your user account is the admin for the team.
-         )))))))ffffffff                - Ensure that the "{{ include "netbird.fullname" . }}-server" service is reachable at {{ .Values.global.domain.global }}:443 (and UDP {{ .Values.global.server.stun_port }}) from the internet.
+         )))))))ffffffff                - Ensure that the "{{ include "netbird.fullname" . }}-server" service is reachable at {{ .Values.global.domain.global }}:443{{ if not (include "netbird.relay.enabled" .) }} (and UDP {{ .Values.global.server.stun_port }}){{ end }} from the internet.
+{{- if include "netbird.relay.inCluster" . }}
+                                        - Ensure that the "{{ include "netbird.fullname" . }}-relay" service is reachable at {{ include "netbird.relay.domain" . }}:443{{ if .Values.relay.inCluster.stun.enabled }} (and UDP {{ .Values.global.relay.stun_port }}){{ end }} from the internet.
+{{- end }}
+{{- if include "netbird.relay.enabled" . }}
+                                        - Peers will use relays {{ include "netbird.relay.addresses" . }} and STUN {{ include "netbird.relay.stuns" . }}; the server's embedded relay and STUN are disabled.
+{{- end }}
         ))))))))))fffff
        )))))))))))))ff

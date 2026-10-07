@@ -1,0 +1,30 @@
+{{- if include "netbird.relay.inCluster" . -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netbird.fullname" . }}-relay
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "netbird.labels" . | nindent 4 }}
+    netbird-app: {{ include "netbird.fullname" . }}-relay
+  {{- with .Values.relay.inCluster.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.relay.inCluster.service.type }}
+  ports:
+    - name: http
+      targetPort: http
+      protocol: TCP
+      port: {{ .Values.global.relay.port }}
+    {{- if .Values.relay.inCluster.stun.enabled }}
+    - name: stun
+      targetPort: stun
+      protocol: UDP
+      port: {{ .Values.global.relay.stun_port }}
+    {{- end }}
+  selector:
+    {{- include "netbird.selectorLabels" . | nindent 4 }}
+    netbird-app: {{ include "netbird.fullname" . }}-relay
+{{- end }}

@@ -17,10 +17,12 @@ spec:
       targetPort: http
       protocol: TCP
       port: {{ .Values.global.server.port }}
+    {{- if not (include "netbird.relay.enabled" .) }}
     - name: stun
       targetPort: stun
       protocol: UDP
       port: {{ .Values.global.server.stun_port }}
+    {{- end }}
   selector:
     {{- include "netbird.selectorLabels" . | nindent 4 }}
     netbird-app: {{ include "netbird.fullname" . }}-server

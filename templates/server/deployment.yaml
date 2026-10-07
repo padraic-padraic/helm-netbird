@@ -54,9 +54,11 @@ spec:
             - name: http
               containerPort: 80
               protocol: TCP
+            {{- if not (include "netbird.relay.enabled" .) }}
             - name: stun
               containerPort: 3478
               protocol: UDP
+            {{- end }}
           args:
             - '--config'
             - '{{ .Values.server.persistence.configMountPath }}'

@@ -83,15 +83,72 @@ Usage: include "netbird.secretEnv" (dict "root" $ "map" .Values.server.secretEnv
 {{- end }}
 
 {{/*
+Relay helpers. Each renders "true" or nothing so callers can use `if include "..." .`.
+
+NetBird's combined server runs STUN as part of its embedded relay: as soon as server.relays is set, both the
+embedded relay and the embedded STUN listener are disabled. So whenever relay.enabled, STUN has to be served by
+the in-cluster relay (relay.inCluster.stun.enabled) or supplied via relay.external.stuns, and the UDPRoute moves
+away from the server Service.
+*/}}
+{{- define "netbird.relay.enabled" -}}
+{{- if .Values.relay.enabled -}}
+{{- if or .Values.relay.inCluster.enabled .Values.relay.external.addresses -}}
+true
+{{- else -}}
+{{- fail "relay.enabled is true but no relay is configured: set relay.inCluster.enabled or add relay.external.addresses" -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{- define "netbird.relay.inCluster" -}}
+{{- if and (include "netbird.relay.enabled" .) .Values.relay.inCluster.enabled -}}true{{- end -}}
+{{- end }}
+
+{{- define "netbird.relay.inClusterStun" -}}
+{{- if and (include "netbird.relay.inCluster" .) .Values.relay.inCluster.stun.enabled -}}true{{- end -}}
+{{- end }}
+
+{{/* Hostname used for the in-cluster relay's HTTPRoute, advertised relay address and STUN URI */}}
+{{- define "netbird.relay.domain" -}}
+{{- .Values.global.domain.relay | default (required "global.domain.global is required" .Values.global.domain.global) -}}
+{{- end }}
+
+{{- define "netbird.relay.exposedAddress" -}}
+{{- .Values.relay.inCluster.exposedAddress | default (printf "rels://%s:443" (include "netbird.relay.domain" .)) -}}
+{{- end }}
+
+{{/* Relay addresses advertised to peers: in-cluster first, then external */}}
+{{- define "netbird.relay.addresses" -}}
+{{- $addresses := list -}}
+{{- if include "netbird.relay.inCluster" . -}}
+{{- $addresses = append $addresses (include "netbird.relay.exposedAddress" .) -}}
+{{- end -}}
+{{- toJson (concat $addresses (.Values.relay.external.addresses | default list)) -}}
+{{- end }}
+
+{{/* STUN hosts advertised to peers (server.stuns) when the embedded STUN is disabled */}}
+{{- define "netbird.relay.stuns" -}}
+{{- $stuns := .Values.relay.external.stuns | default list -}}
+{{- if include "netbird.relay.inClusterStun" . -}}
+{{- $stuns = prepend $stuns (dict "uri" (printf "stun:%s:%v" (include "netbird.relay.domain" .) .Values.global.relay.stun_port)) -}}
+{{- end -}}
+{{- if not $stuns -}}
+{{- fail "relay.enabled disables the server's embedded STUN: enable relay.inCluster.stun or set relay.external.stuns" -}}
+{{- end -}}
+{{- toJson $stuns -}}
+{{- end }}
+
+{{/*
 Rendered server config.yaml: domain-derived defaults, then user config on top.
 Secret fields are emitted as ${KEY} placeholders that the config-init container substitutes.
+With relays enabled, server.relays/server.stuns replace stunPorts so the server neither runs nor advertises
+its own relay and STUN.
 */}}
 {{- define "netbird.serverConfig" -}}
 {{- $domain := required "global.domain.global is required" .Values.global.domain.global -}}
-{{- $derived := dict "server" (dict
+{{- $server := dict
       "listenAddress" (printf ":%v" .Values.global.server.port)
       "exposedAddress" (printf "https://%s:443" $domain)
-      "stunPorts" (list .Values.global.server.stun_port)
       "dataDir" .Values.server.persistence.dataDir
       "authSecret" "${NB_AUTH_SECRET}"
       "auth" (dict
@@ -99,8 +156,17 @@ Secret fields are emitted as ${KEY} placeholders that the config-init container 
         "dashboardRedirectURIs" (list
           (printf "https://%s/nb-auth" $domain)
           (printf "https://%s/nb-silent-auth" $domain)))
-      "store" (dict "encryptionKey" "${NB_STORE_ENCRYPTION_KEY}")) -}}
-{{- $merged := mergeOverwrite $derived (deepCopy (.Values.server.config | default dict)) -}}
+      "store" (dict "encryptionKey" "${NB_STORE_ENCRYPTION_KEY}") -}}
+{{- if include "netbird.relay.enabled" . -}}
+{{- $_ := set $server "relays" (dict
+      "addresses" (include "netbird.relay.addresses" . | fromJsonArray)
+      "secret" "${NB_AUTH_SECRET}"
+      "credentialsTTL" .Values.relay.credentialsTTL) -}}
+{{- $_ := set $server "stuns" (include "netbird.relay.stuns" . | fromJsonArray) -}}
+{{- else -}}
+{{- $_ := set $server "stunPorts" (list .Values.global.server.stun_port) -}}
+{{- end -}}
+{{- $merged := mergeOverwrite (dict "server" $server) (deepCopy (.Values.server.config | default dict)) -}}
 {{- toYaml $merged -}}
 {{- end }}
 
