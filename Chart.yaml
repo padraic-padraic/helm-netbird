@@ -2,10 +2,10 @@ apiVersion: v2
 name: netbird
 description: NetBird in the cloud
 type: application
-version: 2.1.0
+version: 2.1.1
 
 # This is the version number of the application being deployed. This version number should be
 # incremented each time you make changes to the application. Versions are not expected to
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
-appVersion: "0.81.4"
+appVersion: "0.82.0"
