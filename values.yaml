@@ -55,7 +55,7 @@ global:
 dashboard:
   image:
     repository: netbirdio/dashboard
-    tag: v2.96.0
+    tag: v2.97.0
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
@@ -94,7 +94,7 @@ dashboard:
 server:
   image:
     repository: netbirdio/netbird-server
-    tag: 0.82.0
+    tag: 0.82.1
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
