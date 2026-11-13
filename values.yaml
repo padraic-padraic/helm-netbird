@@ -94,7 +94,7 @@ dashboard:
 server:
   image:
     repository: netbirdio/netbird-server
-    tag: 0.82.1
+    tag: 0.83.1
     pullPolicy: IfNotPresent
   annotations: {}
   labels: {}
